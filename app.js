@@ -1,40 +1,74 @@
-/* app.js — rendering, grading, and progress tracking for the quiz */
+/* app.js — rendering, grading, and progress tracking for the practice tests.
+   Each section (congruent triangles, centroids) keeps its own questions,
+   score, and progress; the tabs in the header switch between them. */
+
+const SECTIONS = [
+  {
+    key: "tri",
+    hash: "triangles",
+    title: "Congruent Triangles",
+    questions: QUESTIONS,
+    intro: "Covers congruence postulates (SSS, SAS, ASA, AAS, HL), CPCTC, coordinate proofs, two-column &amp; flowchart proofs, angle relationships, and transformations."
+  },
+  {
+    key: "cen",
+    hash: "centroids",
+    title: "Centroids &amp; Medians",
+    questions: CENTROID_QUESTIONS,
+    intro: "Covers medians, the centroid, the 2 : 1 rule along every median, algebra with centroids, and finding the centroid on the coordinate plane."
+  }
+];
 
 const state = {
-  // per-question: { checked: bool, correct: bool, pickedIndex / pickedSet / values }
-  results: {}
+  active: SECTIONS[0],
+  // per section, per question: { correct: bool, pickedIndex / pickedSet / values }
+  results: { tri: {}, cen: {} }
 };
 
 function $(sel, root = document) { return root.querySelector(sel); }
 function $all(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
 
-function renderJumpNav() {
-  const nav = $("#jumpNav");
-  nav.innerHTML = QUESTIONS.map(q =>
-    `<button data-jump="${q.id}" id="jumpBtn-${q.id}" title="Question ${q.id}: ${q.topic}">${q.id}</button>`
-  ).join("");
-  nav.addEventListener("click", (e) => {
-    const btn = e.target.closest("button[data-jump]");
+function qid(sec, q) { return `${sec.key}-${q.id}`; }
+
+function renderTabs() {
+  $("#sectionTabs").innerHTML = SECTIONS.map(sec => `
+    <button class="section-tab" data-section="${sec.key}" id="tab-${sec.key}">
+      <span class="tab-title">${sec.title}</span>
+      <span class="tab-count">${sec.questions.length} questions</span>
+    </button>
+  `).join("");
+  $("#sectionTabs").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-section]");
     if (!btn) return;
-    const el = document.getElementById(`q-${btn.dataset.jump}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const sec = SECTIONS.find(s => s.key === btn.dataset.section);
+    history.replaceState(null, "", `#${sec.hash}`);
+    showSection(sec);
   });
 }
 
-function fieldRowHTML(q) {
+function renderJumpNav() {
+  const sec = state.active;
+  $("#jumpNav").innerHTML = sec.questions.map(q => {
+    const r = state.results[sec.key][q.id];
+    const cls = r ? (r.correct ? "answered" : "wrong") : "";
+    return `<button data-jump="${qid(sec, q)}" id="jumpBtn-${qid(sec, q)}" class="${cls}" title="Question ${q.id}: ${q.topic}">${q.id}</button>`;
+  }).join("");
+}
+
+function fieldRowHTML(sec, q) {
   return `<div class="input-answers">
     ${q.fields.map(f => `
       <div class="input-field">
-        <label for="f-${q.id}-${f.key}">${f.label}</label>
-        <input type="text" inputmode="decimal" id="f-${q.id}-${f.key}" autocomplete="off" />
+        <label for="f-${qid(sec, q)}-${f.key}">${f.label}</label>
+        <input type="text" inputmode="decimal" id="f-${qid(sec, q)}-${f.key}" autocomplete="off" />
       </div>
     `).join("")}
   </div>`;
 }
 
-function choiceRowsHTML(q) {
+function choiceRowsHTML(sec, q) {
   const inputType = q.type === "multi" ? "checkbox" : "radio";
-  const name = `q-${q.id}-choice`;
+  const name = `q-${qid(sec, q)}-choice`;
   return `<div class="choices">
     ${q.choices.map((c, i) => `
       <label class="choice" data-idx="${i}">
@@ -57,10 +91,10 @@ function proofTableHTML(rows) {
   </table>`;
 }
 
-function renderQuestion(q) {
+function renderQuestion(sec, q) {
   const card = document.createElement("section");
   card.className = "question-card";
-  card.id = `q-${q.id}`;
+  card.id = `q-${qid(sec, q)}`;
 
   let bodyHTML = `
     <div class="q-head">
@@ -78,9 +112,9 @@ function renderQuestion(q) {
   }
 
   if (q.type === "input") {
-    bodyHTML += fieldRowHTML(q);
+    bodyHTML += fieldRowHTML(sec, q);
   } else {
-    bodyHTML += choiceRowsHTML(q);
+    bodyHTML += choiceRowsHTML(sec, q);
   }
 
   bodyHTML += `
@@ -88,17 +122,17 @@ function renderQuestion(q) {
       <button class="btn-check" data-check="${q.id}">Check Answer</button>
       <span class="hint-text" style="font-size:0.82rem;color:#6b7a86;"></span>
     </div>
-    <div class="feedback" id="feedback-${q.id}"></div>
+    <div class="feedback" id="feedback-${qid(sec, q)}"></div>
   `;
 
   card.innerHTML = bodyHTML;
   return card;
 }
 
-function getNumericValue(q, key) {
-  const el = document.getElementById(`f-${q.id}-${key}`);
+function getNumericValue(sec, q, key) {
+  const el = document.getElementById(`f-${qid(sec, q)}-${key}`);
   if (!el) return null;
-  const raw = el.value.trim().replace(/[°\s]/g, "");
+  const raw = el.value.trim().replace(/[°\s]/g, "").replace(/[−–]/g, "-");
   if (raw === "") return null;
   const num = parseFloat(raw);
   return isNaN(num) ? null : num;
@@ -108,14 +142,14 @@ function closeEnough(a, b, tol = 0.05) {
   return Math.abs(a - b) <= tol;
 }
 
-function gradeQuestion(q) {
+function gradeQuestion(sec, q) {
   if (q.type === "mc") {
-    const picked = $all(`input[name="q-${q.id}-choice"]`).findIndex(i => i.checked);
+    const picked = $all(`input[name="q-${qid(sec, q)}-choice"]`).findIndex(i => i.checked);
     if (picked === -1) return null;
     return { correct: picked === q.correct, pickedIndex: picked };
   }
   if (q.type === "multi") {
-    const pickedSet = $all(`input[name="q-${q.id}-choice"]`)
+    const pickedSet = $all(`input[name="q-${qid(sec, q)}-choice"]`)
       .map((i, idx) => (i.checked ? idx : -1))
       .filter(idx => idx !== -1);
     if (pickedSet.length === 0) return null;
@@ -128,7 +162,7 @@ function gradeQuestion(q) {
     const values = {};
     let allFilled = true;
     q.fields.forEach(f => {
-      const v = getNumericValue(q, f.key);
+      const v = getNumericValue(sec, q, f.key);
       values[f.key] = v;
       if (v === null) allFilled = false;
     });
@@ -151,8 +185,9 @@ function findMistakeNote(q, key, value) {
   return hit ? hit.note : null;
 }
 
-function renderFeedback(q, result) {
-  const box = document.getElementById(`feedback-${q.id}`);
+function renderFeedback(sec, q, result) {
+  const box = document.getElementById(`feedback-${qid(sec, q)}`);
+  const card = document.getElementById(`q-${qid(sec, q)}`);
   box.classList.remove("show", "correct", "incorrect");
   box.classList.add("show", result.correct ? "correct" : "incorrect");
 
@@ -191,13 +226,13 @@ function renderFeedback(q, result) {
 
   // visually mark choices / inputs
   if (q.type === "mc") {
-    $all(`.choice`, document.getElementById(`q-${q.id}`)).forEach((label, i) => {
+    $all(`.choice`, card).forEach((label, i) => {
       label.classList.remove("correct-pick", "wrong-pick", "reveal-correct");
       if (i === q.correct) label.classList.add("reveal-correct");
       if (i === result.pickedIndex && i !== q.correct) label.classList.add("wrong-pick");
     });
   } else if (q.type === "multi") {
-    $all(`.choice`, document.getElementById(`q-${q.id}`)).forEach((label, i) => {
+    $all(`.choice`, card).forEach((label, i) => {
       label.classList.remove("correct-pick", "wrong-pick", "reveal-correct");
       const isCorrectChoice = q.correctSet.includes(i);
       const wasPicked = result.pickedSet.includes(i);
@@ -206,57 +241,62 @@ function renderFeedback(q, result) {
     });
   } else if (q.type === "input") {
     q.fields.forEach(f => {
-      const el = document.getElementById(`f-${q.id}-${f.key}`);
+      const el = document.getElementById(`f-${qid(sec, q)}-${f.key}`);
       el.classList.remove("correct", "incorrect");
       el.classList.add(result.fieldStatus[f.key] ? "correct" : "incorrect");
     });
   }
 }
 
-function updateJumpBtn(q, result) {
-  const btn = document.getElementById(`jumpBtn-${q.id}`);
+function updateJumpBtn(sec, q, result) {
+  const btn = document.getElementById(`jumpBtn-${qid(sec, q)}`);
   btn.classList.remove("answered", "wrong");
   btn.classList.add(result.correct ? "answered" : "wrong");
 }
 
 function updateScorePill() {
-  const checked = Object.keys(state.results).length;
-  const correct = Object.values(state.results).filter(r => r.correct).length;
+  const sec = state.active;
+  const results = state.results[sec.key];
+  const total = sec.questions.length;
+  const checked = Object.keys(results).length;
+  const correct = Object.values(results).filter(r => r.correct).length;
   $("#scorePill").textContent = checked === 0
     ? "Score: not started"
     : `Score: ${correct} / ${checked} checked correct`;
-  $("#progressFill").style.width = `${(checked / QUESTIONS.length) * 100}%`;
-  $("#progressLabel").textContent = `${checked} / ${QUESTIONS.length} answered`;
+  $("#progressFill").style.width = `${(checked / total) * 100}%`;
+  $("#progressLabel").textContent = `${checked} / ${total} answered`;
 }
 
-function handleCheck(id) {
-  const q = QUESTIONS.find(qq => qq.id === id);
-  const result = gradeQuestion(q);
+function handleCheck(sec, id) {
+  const q = sec.questions.find(qq => qq.id === id);
+  const result = gradeQuestion(sec, q);
   if (!result) {
-    const box = document.getElementById(`feedback-${q.id}`);
+    const box = document.getElementById(`feedback-${qid(sec, q)}`);
     box.classList.add("show", "incorrect");
     box.classList.remove("correct");
     box.innerHTML = `<div class="feedback-status">⚠️ Please answer first</div><p>Fill in your answer, then click Check Answer.</p>`;
     return;
   }
-  state.results[id] = result;
-  renderFeedback(q, result);
-  updateJumpBtn(q, result);
+  state.results[sec.key][id] = result;
+  renderFeedback(sec, q, result);
+  updateJumpBtn(sec, q, result);
   updateScorePill();
 }
 
 function renderFinalSummary() {
-  const total = QUESTIONS.length;
-  const checked = Object.keys(state.results).length;
-  const correct = Object.values(state.results).filter(r => r.correct).length;
+  const sec = state.active;
+  const results = state.results[sec.key];
+  const total = sec.questions.length;
+  const checked = Object.keys(results).length;
+  const correct = Object.values(results).filter(r => r.correct).length;
 
   const byTopic = {};
-  QUESTIONS.forEach(q => {
+  sec.questions.forEach(q => {
     byTopic[q.topic] = byTopic[q.topic] || { total: 0, correct: 0, checked: 0 };
     byTopic[q.topic].total++;
-    if (state.results[q.id]) {
+    if (results[q.id]) {
       byTopic[q.topic].checked++;
-      if (state.results[q.id].correct) byTopic[q.topic].correct++;
+      if (results[q.id].correct) byTopic[q.topic].correct++;
     }
   });
 
@@ -272,6 +312,7 @@ function renderFinalSummary() {
   const summary = $("#finalSummary");
   summary.classList.add("show");
   summary.innerHTML = `
+    <div class="summary-title">${sec.title}</div>
     <div class="big-score">${correct} / ${checked || total}</div>
     <div class="grade-note">${checked < total ? `You've checked ${checked} of ${total} questions. ` : ""}${gradeNote}</div>
     <div class="topic-breakdown">
@@ -283,24 +324,51 @@ function renderFinalSummary() {
   summary.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function init() {
-  const container = $("#quizContainer");
-  QUESTIONS.forEach(q => container.appendChild(renderQuestion(q)));
+function showSection(sec) {
+  state.active = sec;
+  SECTIONS.forEach(s => {
+    $(`#set-${s.key}`).hidden = s !== sec;
+    $(`#tab-${s.key}`).classList.toggle("active", s === sec);
+  });
+  $("#sectionIntro").innerHTML = sec.intro;
+  $("#finalSummary").classList.remove("show");
+  document.title = `${sec.title.replace("&amp;", "&")} Practice Test`;
   renderJumpNav();
   updateScorePill();
+}
+
+function init() {
+  const container = $("#quizContainer");
+  SECTIONS.forEach(sec => {
+    const set = document.createElement("div");
+    set.className = "quiz-set";
+    set.id = `set-${sec.key}`;
+    sec.questions.forEach(q => set.appendChild(renderQuestion(sec, q)));
+    container.appendChild(set);
+  });
+  renderTabs();
 
   container.addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-check]");
-    if (btn) handleCheck(parseInt(btn.dataset.check, 10));
+    if (btn) handleCheck(state.active, parseInt(btn.dataset.check, 10));
+  });
+
+  $("#jumpNav").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-jump]");
+    if (!btn) return;
+    const el = document.getElementById(`q-${btn.dataset.jump}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   });
 
   $("#finishBtn").addEventListener("click", renderFinalSummary);
   $("#printBtn").addEventListener("click", () => window.print());
   $("#resetBtn").addEventListener("click", () => {
     if (!confirm("Clear all your answers and start over?")) return;
-    state.results = {};
     window.location.reload();
   });
+
+  const fromHash = SECTIONS.find(s => `#${s.hash}` === window.location.hash);
+  showSection(fromHash || SECTIONS[0]);
 }
 
 document.addEventListener("DOMContentLoaded", init);

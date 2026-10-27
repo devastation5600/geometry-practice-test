@@ -1,6 +1,13 @@
-# Congruent Triangles — Practice Test
+# Geometry — Practice Tests
 
-A 20-question, self-grading practice test covering: triangle congruence
+Two self-grading practice tests, switchable with the tabs at the top
+(link straight to one with `#triangles` or `#centroids`).
+
+**Centroids & Medians** (15 questions, `centroids.js`): what a median is,
+the centroid, the 2 : 1 rule along every median, algebra with centroids,
+and finding the centroid on the coordinate plane.
+
+**Congruent Triangles** (20 questions, `questions.js`): triangle congruence
 postulates (SSS, SAS, ASA, AAS, HL), CPCTC algebra, perimeter problems,
 coordinate-plane triangle classification, two-column & flowchart proofs,
 angle relationships (linear pairs, vertical angles, exterior angle
@@ -58,5 +65,6 @@ All question content lives in `questions.js` as a plain JavaScript
 array — each entry has a prompt, an auto-generated SVG diagram
 (built declaratively in `diagrams.js`), answer choices or input
 fields, a full worked solution, and notes for common wrong answers.
-Add a new object to the `QUESTIONS` array following the same shape to
+Centroid questions live in `CENTROID_QUESTIONS` in `centroids.js`, in the
+same shape. Add a new object to either array following the same shape to
 extend the test; no other file needs to change.
